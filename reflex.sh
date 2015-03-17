@@ -1,0 +1,3 @@
+# To run this, issue: reflex -- sh ~/reflex.sh
+clear
+go build ./...
