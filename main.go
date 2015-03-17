@@ -7,6 +7,7 @@ import (
 	"math/rand"
 	"net/url"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/davecgh/go-spew/spew"
@@ -65,31 +66,43 @@ func main() {
 
 	tags := Tags(config.Tags)
 
-	bp := client.BatchPoints{
-		Database: config.Database,
-	}
+	var wg sync.WaitGroup
+	wg.Add(config.Rows / config.BatchSize)
+
+	var points []client.Point
 	for i := 1; i <= config.Rows; i++ {
+
 		p := client.Point{
 			Name:      "p1",
 			Timestamp: time.Now(),
 			Tags:      randomTags(tags),
 			Fields:    map[string]interface{}{"v1": randFloat(0, 1000)},
 		}
-		bp.Points = append(bp.Points, p)
-		if len(bp.Points)%config.BatchSize == 0 {
-			log.Printf("Inserting %d rows batch %d\n", config.BatchSize, i/config.BatchSize)
-			r, e := cl.Write(bp)
-			if e != nil {
-				log.Printf("err writing point: %s", e)
-				return
-			}
-			if r != nil && r.Error() != nil {
-				log.Printf("err writing point: %s", r.Error())
-				return
-			}
-			bp.Points = []client.Point{}
+		points = append(points, p)
+		if len(points)%config.BatchSize == 0 {
+			go func(points []client.Point, i int) {
+				defer wg.Done()
+				bp := client.BatchPoints{
+					Database: config.Database,
+					Points:   points,
+				}
+
+				log.Printf("Inserting %d rows batch %d\n", config.BatchSize, i/config.BatchSize)
+				r, e := cl.Write(bp)
+				if e != nil {
+					log.Printf("err writing point: %s", e)
+					panic("")
+				}
+				if r != nil && r.Error() != nil {
+					log.Printf("err writing point: %s", r.Error())
+					panic("")
+				}
+			}(points, i)
+			// reset points
+			points = nil
 		}
 	}
+	wg.Wait()
 }
 
 func Tags(size int) []string {
